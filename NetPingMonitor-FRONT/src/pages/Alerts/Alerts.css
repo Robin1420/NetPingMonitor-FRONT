@@ -1,0 +1,158 @@
+.alerts-summary {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.alerts-summary-card {
+  border: 1px solid rgba(255, 68, 4, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.alerts-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 18px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.alerts-summary-body {
+  padding: 8px 18px 18px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.alerts-summary-body p {
+  margin: 0;
+}
+
+.alerts-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.alerts-controls-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.alerts-card {
+  border: 1px solid rgba(255, 68, 4, 0.1);
+  background: #ffffff;
+}
+
+.alerts-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 8px;
+}
+
+.alerts-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.alerts-card-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alerts-card-body {
+  padding: 10px 20px 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.alerts-error {
+  color: #b42318;
+  font-weight: 600;
+  margin: 0;
+}
+
+.alerts-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.alerts-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 68, 4, 0.1);
+}
+
+.alerts-row:last-child {
+  border-bottom: none;
+}
+
+.alerts-main {
+  display: grid;
+  gap: 8px;
+}
+
+.alerts-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.alerts-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alerts-details {
+  margin: 0;
+  font-size: 13px;
+  color: #312b24;
+}
+
+.alerts-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alerts-side {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  align-content: start;
+}
+
+.alerts-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 880px) {
+  .alerts-row {
+    grid-template-columns: 1fr;
+  }
+
+  .alerts-side {
+    justify-items: start;
+  }
+
+  .alerts-actions {
+    justify-content: flex-start;
+  }
+}

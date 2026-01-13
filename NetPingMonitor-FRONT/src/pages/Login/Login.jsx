@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -19,17 +20,16 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:800
 )
 
 function LoginPage() {
+  const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
-    setSuccess(false)
 
     const trimmedUsername = username.trim()
     if (!trimmedUsername || !password) {
@@ -64,7 +64,7 @@ function LoginPage() {
       if (payload.refresh) {
         storage.setItem('refresh_token', payload.refresh)
       }
-      setSuccess(true)
+      navigate('/dashboard')
     } catch (err) {
       setError('No se pudo conectar con el servidor.')
     } finally {
@@ -148,9 +148,6 @@ function LoginPage() {
                 </Link>
               </div>
               {error ? <p className="login-error">{error}</p> : null}
-              {success ? (
-                <p className="login-success">Sesion iniciada.</p>
-              ) : null}
             </CardBody>
             <Divider />
             <CardFooter className="login-card-footer">

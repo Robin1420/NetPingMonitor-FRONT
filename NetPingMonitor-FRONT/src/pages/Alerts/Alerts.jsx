@@ -13,6 +13,7 @@ import {
   Tabs,
 } from '@heroui/react'
 import {
+  ArrowLeftOnRectangleIcon,
   BellAlertIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -21,12 +22,14 @@ import {
   UsersIcon,
 } from '@heroicons/react/24/outline'
 import gponLogo from '../../assets/img/Gponlogo.jpg'
+import {
+  API_BASE_URL,
+  apiFetch,
+  clearAuthTokens,
+  getAuthToken,
+} from '../../utils/apiClient'
 import '../Dashboard/Dashboard.css'
 import './Alerts.css'
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
-).replace(/\/$/, '')
 
 const NAV_ITEMS = [
   {
@@ -84,10 +87,6 @@ const STATUS_FILTERS = [
   { key: 'resolved', label: 'Resueltas' },
 ]
 
-const getAuthToken = () =>
-  localStorage.getItem('access_token') ||
-  sessionStorage.getItem('access_token') ||
-  ''
 
 const formatDate = (value) => {
   if (!value) return '-'
@@ -156,11 +155,7 @@ function AlertsPage() {
         filter && filter !== 'all'
           ? `?status=${encodeURIComponent(filter)}`
           : ''
-      const response = await fetch(`${API_BASE_URL}/alerts/${query}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
+      const response = await apiFetch(`${API_BASE_URL}/alerts/${query}`)
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         setError(payload.detail || 'No se pudo cargar alertas.')
@@ -187,13 +182,10 @@ function AlertsPage() {
     setError('')
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_BASE_URL}/alerts/${alertId}/${action}/`,
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
         },
       )
       const payload = await response.json().catch(() => ({}))
@@ -236,6 +228,11 @@ function AlertsPage() {
     if (item.route) {
       navigate(item.route)
     }
+  }
+
+  const handleLogout = () => {
+    clearAuthTokens()
+    navigate('/login', { replace: true })
   }
 
   useEffect(() => {
@@ -292,9 +289,18 @@ function AlertsPage() {
           </nav>
 
           <div className="sidebar-footer">
-            <Chip color="primary" variant="flat">
-              API activa
-            </Chip>
+            <Button
+              size="sm"
+              color="danger"
+              variant="flat"
+              className="sidebar-logout"
+              startContent={
+                <ArrowLeftOnRectangleIcon className="sidebar-logout-icon" />
+              }
+              onPress={handleLogout}
+            >
+              <span className="sidebar-logout-text">Cerrar sesion</span>
+            </Button>
           </div>
         </aside>
 

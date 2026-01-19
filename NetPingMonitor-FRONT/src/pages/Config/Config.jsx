@@ -16,6 +16,7 @@ import {
   Tabs,
 } from '@heroui/react'
 import {
+  ArrowLeftOnRectangleIcon,
   BellAlertIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -27,12 +28,14 @@ import {
   UsersIcon,
 } from '@heroicons/react/24/outline'
 import gponLogo from '../../assets/img/Gponlogo.jpg'
+import {
+  API_BASE_URL,
+  apiFetch,
+  clearAuthTokens,
+  getAuthToken,
+} from '../../utils/apiClient'
 import '../Dashboard/Dashboard.css'
 import './Config.css'
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
-).replace(/\/$/, '')
 
 const NAV_ITEMS = [
   {
@@ -80,11 +83,6 @@ const NAV_ITEMS = [
 const TARGET_TYPES = ['dns', 'web', 'router', 'olt', 'ont', 'host', 'other']
 const TOKEN_SCOPES = ['read', 'write']
 
-const getAuthToken = () =>
-  localStorage.getItem('access_token') ||
-  sessionStorage.getItem('access_token') ||
-  ''
-
 const formatDateTime = (value) => {
   if (!value) return '-'
   const parsed = new Date(value)
@@ -126,7 +124,21 @@ function ConfigPage() {
   const [lastPingResult, setLastPingResult] = useState(null)
   const [targetError, setTargetError] = useState('')
   const [targetNotice, setTargetNotice] = useState('')
+  const [editTarget, setEditTarget] = useState(null)
+  const [editError, setEditError] = useState('')
+  const [isUpdatingTarget, setIsUpdatingTarget] = useState(false)
+  const [isDeletingTarget, setIsDeletingTarget] = useState(null)
   const [targetForm, setTargetForm] = useState({
+    name: '',
+    address: '',
+    target_type: 'other',
+    description: '',
+    is_enabled: true,
+    check_interval_seconds: '60',
+    timeout_ms: '1000',
+    expected_packets: '4',
+  })
+  const [editForm, setEditForm] = useState({
     name: '',
     address: '',
     target_type: 'other',
@@ -181,6 +193,42 @@ function ConfigPage() {
     }))
   }
 
+  const updateEditForm = (field, value) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }))
+  }
+
+  const toPositiveInt = (value, fallback) => {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed)
+    }
+    return fallback
+  }
+
+  const openEditTarget = (target) => {
+    if (!target) return
+    setEditError('')
+    setEditTarget(target)
+    setEditForm({
+      name: target.name || '',
+      address: target.address || '',
+      target_type: target.target_type || 'other',
+      description: target.description || '',
+      is_enabled: Boolean(target.is_enabled),
+      check_interval_seconds: String(target.check_interval_seconds ?? 60),
+      timeout_ms: String(target.timeout_ms ?? 1000),
+      expected_packets: String(target.expected_packets ?? 4),
+    })
+  }
+
+  const closeEditTarget = () => {
+    setEditTarget(null)
+    setEditError('')
+  }
+
   const fetchTargets = useCallback(async () => {
     setIsLoadingTargets(true)
     setTargetError('')
@@ -193,11 +241,7 @@ function ConfigPage() {
       return
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/targets/`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
+      const response = await apiFetch(`${API_BASE_URL}/targets/`)
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         setTargetError(
@@ -235,14 +279,6 @@ function ConfigPage() {
       return
     }
 
-    const toPositiveInt = (value, fallback) => {
-      const parsed = Number(value)
-      if (Number.isFinite(parsed) && parsed > 0) {
-        return Math.floor(parsed)
-      }
-      return fallback
-    }
-
     const payload = {
       name,
       address,
@@ -257,10 +293,9 @@ function ConfigPage() {
     setIsSavingTarget(true)
     setTargetNotice('Enviando solicitud...')
     try {
-      const response = await fetch(`${API_BASE_URL}/targets/`, {
+      const response = await apiFetch(`${API_BASE_URL}/targets/`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -311,12 +346,12 @@ function ConfigPage() {
     setTargetNotice('Ejecutando ping...')
     setActivePingId(targetId)
     try {
-      const response = await fetch(`${API_BASE_URL}/targets/${targetId}/ping/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const response = await apiFetch(
+        `${API_BASE_URL}/targets/${targetId}/ping/`,
+        {
+          method: 'POST',
         },
-      })
+      )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         setTargetError(
@@ -343,6 +378,112 @@ function ConfigPage() {
     }
   }
 
+  const handleUpdateTarget = async () => {
+    if (!editTarget) return
+    const name = editForm.name.trim()
+    const address = editForm.address.trim()
+    setEditError('')
+    setTargetNotice('')
+
+    if (!name || !address) {
+      setEditError('Completa nombre y host/IP.')
+      return
+    }
+
+    const token = getAuthToken()
+    if (!token) {
+      setEditError('No hay sesion activa. Inicia sesion.')
+      return
+    }
+
+    const payload = {
+      name,
+      address,
+      target_type: editForm.target_type,
+      description: editForm.description.trim(),
+      is_enabled: editForm.is_enabled,
+      check_interval_seconds: toPositiveInt(editForm.check_interval_seconds, 60),
+      timeout_ms: toPositiveInt(editForm.timeout_ms, 1000),
+      expected_packets: toPositiveInt(editForm.expected_packets, 4),
+    }
+
+    setIsUpdatingTarget(true)
+    try {
+      const response = await apiFetch(
+        `${API_BASE_URL}/targets/${editTarget.id}/`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        },
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setEditError(
+          `HTTP ${response.status} - ${formatApiError(
+            data,
+            'No se pudo actualizar el target.',
+          )}`,
+        )
+        return
+      }
+      setTargets((prev) =>
+        prev.map((item) => (item.id === data.id ? data : item)),
+      )
+      setTargetNotice('Target actualizado correctamente.')
+      closeEditTarget()
+    } catch (err) {
+      setEditError('No se pudo conectar con el servidor.')
+    } finally {
+      setIsUpdatingTarget(false)
+    }
+  }
+
+  const handleDeleteTarget = async (target) => {
+    if (!target) return
+    const confirmed = window.confirm(
+      `Seguro que deseas eliminar el target "${target.name}"?`,
+    )
+    if (!confirmed) return
+
+    setTargetError('')
+    setTargetNotice('')
+    setIsDeletingTarget(target.id)
+
+    try {
+      const response = await apiFetch(
+        `${API_BASE_URL}/targets/${target.id}/`,
+        {
+          method: 'DELETE',
+        },
+      )
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        setTargetError(
+          `HTTP ${response.status} - ${formatApiError(
+            payload,
+            'No se pudo eliminar el target.',
+          )}`,
+        )
+        return
+      }
+      setTargets((prev) => prev.filter((item) => item.id !== target.id))
+      if (lastCreatedId === target.id) {
+        setLastCreatedId(null)
+      }
+      if (lastPingResult?.target?.id === target.id) {
+        setLastPingResult(null)
+      }
+      setTargetNotice('Target eliminado correctamente.')
+    } catch (err) {
+      setTargetError('No se pudo conectar con el servidor.')
+    } finally {
+      setIsDeletingTarget(null)
+    }
+  }
+
   const toggleMobile = () => setIsMobileOpen((prev) => !prev)
   const handleSidebarEnter = () => {
     if (!isMobileOpen) {
@@ -361,6 +502,11 @@ function ConfigPage() {
     if (item.route) {
       navigate(item.route)
     }
+  }
+
+  const handleLogout = () => {
+    clearAuthTokens()
+    navigate('/login', { replace: true })
   }
 
   useEffect(() => {
@@ -417,9 +563,18 @@ function ConfigPage() {
           </nav>
 
           <div className="sidebar-footer">
-            <Chip color="primary" variant="flat">
-              API activa
-            </Chip>
+            <Button
+              size="sm"
+              color="danger"
+              variant="flat"
+              className="sidebar-logout"
+              startContent={
+                <ArrowLeftOnRectangleIcon className="sidebar-logout-icon" />
+              }
+              onPress={handleLogout}
+            >
+              <span className="sidebar-logout-text">Cerrar sesion</span>
+            </Button>
           </div>
         </aside>
 
@@ -658,6 +813,22 @@ function ConfigPage() {
                                   onPress={() => handlePingTarget(target.id)}
                                 >
                                   Ping
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="bordered"
+                                  onPress={() => openEditTarget(target)}
+                                >
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  color="danger"
+                                  variant="flat"
+                                  isLoading={isDeletingTarget === target.id}
+                                  onPress={() => handleDeleteTarget(target)}
+                                >
+                                  Eliminar
                                 </Button>
                               </div>
                             </div>
@@ -914,6 +1085,131 @@ function ConfigPage() {
         onClick={() => setIsMobileOpen(false)}
         aria-hidden={!isMobileOpen}
       />
+      {editTarget ? (
+        <div className="config-modal-backdrop" onClick={closeEditTarget}>
+          <div
+            className="config-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="config-modal-header">
+              <div>
+                <p className="config-modal-title">Editar target</p>
+                <p className="config-modal-subtitle">
+                  Actualiza parametros y guarda los cambios.
+                </p>
+              </div>
+              <Button
+                isIconOnly
+                variant="light"
+                onPress={closeEditTarget}
+                aria-label="Cerrar"
+              >
+                X
+              </Button>
+            </div>
+            <Divider />
+            <div className="config-modal-body">
+              <div className="config-form">
+                <div className="config-form-row">
+                  <Input
+                    label="Nombre"
+                    placeholder="OLT Plaza"
+                    value={editForm.name}
+                    onValueChange={(value) => updateEditForm('name', value)}
+                  />
+                  <Input
+                    label="Host / IP"
+                    placeholder="10.10.2.4"
+                    value={editForm.address}
+                    onValueChange={(value) => updateEditForm('address', value)}
+                  />
+                </div>
+                <Select
+                  label="Tipo de target"
+                  placeholder="Selecciona un tipo"
+                  selectedKeys={[editForm.target_type]}
+                  onSelectionChange={(keys) =>
+                    updateEditForm(
+                      'target_type',
+                      Array.from(keys)[0] || 'other',
+                    )
+                  }
+                >
+                  {TARGET_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <div className="config-form-row">
+                  <Switch
+                    color="primary"
+                    isSelected={editForm.is_enabled}
+                    onValueChange={(value) =>
+                      updateEditForm('is_enabled', value)
+                    }
+                  >
+                    Activo
+                  </Switch>
+                  <Input
+                    label="Notas"
+                    placeholder="Segmento norte"
+                    value={editForm.description}
+                    onValueChange={(value) =>
+                      updateEditForm('description', value)
+                    }
+                  />
+                </div>
+                <div className="config-form-row">
+                  <Input
+                    label="Intervalo (s)"
+                    type="number"
+                    min="5"
+                    value={editForm.check_interval_seconds}
+                    onValueChange={(value) =>
+                      updateEditForm('check_interval_seconds', value)
+                    }
+                  />
+                  <Input
+                    label="Timeout (ms)"
+                    type="number"
+                    min="100"
+                    value={editForm.timeout_ms}
+                    onValueChange={(value) =>
+                      updateEditForm('timeout_ms', value)
+                    }
+                  />
+                  <Input
+                    label="Paquetes"
+                    type="number"
+                    min="1"
+                    value={editForm.expected_packets}
+                    onValueChange={(value) =>
+                      updateEditForm('expected_packets', value)
+                    }
+                  />
+                </div>
+                {editError ? <p className="config-error">{editError}</p> : null}
+              </div>
+            </div>
+            <Divider />
+            <div className="config-modal-footer">
+              <Button variant="bordered" onPress={closeEditTarget}>
+                Cancelar
+              </Button>
+              <Button
+                color="primary"
+                onPress={handleUpdateTarget}
+                isLoading={isUpdatingTarget}
+              >
+                Guardar cambios
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }

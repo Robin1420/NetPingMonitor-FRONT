@@ -13,6 +13,7 @@ import {
   SelectItem,
 } from '@heroui/react'
 import {
+  ArrowLeftOnRectangleIcon,
   BellAlertIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -21,12 +22,14 @@ import {
   UsersIcon,
 } from '@heroicons/react/24/outline'
 import gponLogo from '../../assets/img/Gponlogo.jpg'
+import {
+  API_BASE_URL,
+  apiFetch,
+  clearAuthTokens,
+  getAuthToken,
+} from '../../utils/apiClient'
 import '../Dashboard/Dashboard.css'
 import './History.css'
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
-).replace(/\/$/, '')
 
 const NAV_ITEMS = [
   {
@@ -71,10 +74,6 @@ const NAV_ITEMS = [
   },
 ]
 
-const getAuthToken = () =>
-  localStorage.getItem('access_token') ||
-  sessionStorage.getItem('access_token') ||
-  ''
 
 const formatDateTime = (value) => {
   if (!value) return '-'
@@ -135,11 +134,7 @@ function HistoryPage() {
       return
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/targets/`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
+      const response = await apiFetch(`${API_BASE_URL}/targets/`)
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         setError(payload.detail || 'No se pudo cargar targets.')
@@ -187,13 +182,8 @@ function HistoryPage() {
     const query = params.toString()
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_BASE_URL}/targets/${selectedTargetId}/history/${query ? `?${query}` : ''}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -232,6 +222,11 @@ function HistoryPage() {
     if (item.route) {
       navigate(item.route)
     }
+  }
+
+  const handleLogout = () => {
+    clearAuthTokens()
+    navigate('/login', { replace: true })
   }
 
   useEffect(() => {
@@ -294,9 +289,18 @@ function HistoryPage() {
           </nav>
 
           <div className="sidebar-footer">
-            <Chip color="primary" variant="flat">
-              API activa
-            </Chip>
+            <Button
+              size="sm"
+              color="danger"
+              variant="flat"
+              className="sidebar-logout"
+              startContent={
+                <ArrowLeftOnRectangleIcon className="sidebar-logout-icon" />
+              }
+              onPress={handleLogout}
+            >
+              <span className="sidebar-logout-text">Cerrar sesion</span>
+            </Button>
           </div>
         </aside>
 

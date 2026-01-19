@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AlertsPage from './pages/Alerts/Alerts.jsx'
+import ProtectedRoute from './components/ProtectedRoute.jsx'
 import ConfigPage from './pages/Config/Config.jsx'
 import DashboardPage from './pages/Dashboard/Dashboard.jsx'
 import HistoryPage from './pages/History/History.jsx'
@@ -11,11 +12,13 @@ function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/alerts" element={<AlertsPage />} />
-      <Route path="/history" element={<HistoryPage />} />
-      <Route path="/config" element={<ConfigPage />} />
-      <Route path="*" element={<NotFoundPage />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/config" element={<ConfigPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
     </Routes>
   )
 }

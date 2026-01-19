@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Avatar,
@@ -9,10 +9,16 @@ import {
   Chip,
   Divider,
   Input,
-  Progress,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalHeader,
 } from '@heroui/react'
 import {
+  ArrowLeftOnRectangleIcon,
+  ArrowTrendingDownIcon,
   BellAlertIcon,
+  BoltIcon,
   ClockIcon,
   Cog6ToothIcon,
   DocumentChartBarIcon,
@@ -20,6 +26,13 @@ import {
   UsersIcon,
 } from '@heroicons/react/24/outline'
 import gponLogo from '../../assets/img/Gponlogo.jpg'
+import Sparkline from '../../components/Sparkline'
+import {
+  API_BASE_URL,
+  apiFetch,
+  clearAuthTokens,
+  getAuthToken,
+} from '../../utils/apiClient'
 import './Dashboard.css'
 
 const NAV_ITEMS = [
@@ -65,40 +78,26 @@ const NAV_ITEMS = [
   },
 ]
 
+const STATUS_META = {
+  UP: { label: 'UP', color: 'success' },
+  DOWN: { label: 'DOWN', color: 'danger' },
+  UNKNOWN: { label: 'Sin dato', color: 'default' },
+}
+
+const POLL_MS = 15000
+
 function DashboardPage() {
   const navigate = useNavigate()
   const [activeId, setActiveId] = useState('overview')
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
-
-  const quickStats = useMemo(
-    () => [
-      { label: 'Targets activos', value: '24', delta: '+2 hoy' },
-      { label: 'Alertas abiertas', value: '3', delta: '1 critica' },
-      { label: 'Latencia media', value: '32 ms', delta: 'Ultima hora' },
-      { label: 'Perdida media', value: '0.4%', delta: 'Ultima hora' },
-    ],
-    [],
-  )
-
-  const recentAlerts = useMemo(
-    () => [
-      { title: 'OLT-03 sin respuesta', time: 'Hace 2 min', level: 'critica' },
-      { title: 'Router Core jitter alto', time: 'Hace 7 min', level: 'media' },
-      { title: 'ONT-221 recuperado', time: 'Hace 18 min', level: 'ok' },
-    ],
-    [],
-  )
-
-  const recentTargets = useMemo(
-    () => [
-      { name: 'Core DNS 1', status: 'UP', latency: '18 ms' },
-      { name: 'OLT Plaza', status: 'DOWN', latency: 'timeout' },
-      { name: 'Router BGP', status: 'UP', latency: '24 ms' },
-      { name: 'POP Norte', status: 'UP', latency: '31 ms' },
-    ],
-    [],
-  )
+  const [searchValue, setSearchValue] = useState('')
+  const [rows, setRows] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [isChartOpen, setIsChartOpen] = useState(false)
+  const [activeChart, setActiveChart] = useState(null)
 
   const toggleMobile = () => setIsMobileOpen((prev) => !prev)
   const handleSidebarEnter = () => {
@@ -118,6 +117,81 @@ function DashboardPage() {
     if (item.route) {
       navigate(item.route)
     }
+  }
+
+  const handleLogout = () => {
+    clearAuthTokens()
+    navigate('/login', { replace: true })
+  }
+
+  const openChart = (payload) => {
+    setActiveChart(payload)
+    setIsChartOpen(true)
+  }
+
+  const fetchStatus = useCallback(async () => {
+    setIsLoading(true)
+    setError('')
+    const token = getAuthToken()
+    if (!token) {
+      setError('No hay sesion activa. Inicia sesion.')
+      setRows([])
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const response = await apiFetch(
+        `${API_BASE_URL}/targets/status/?include_history=1&points=60`,
+      )
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(payload.detail || 'No se pudo cargar el estado.')
+        setRows([])
+        return
+      }
+      const results = Array.isArray(payload?.results) ? payload.results : []
+      setRows(results)
+      setLastUpdated(new Date())
+    } catch (err) {
+      setError('No se pudo conectar con el servidor.')
+      setRows([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const filteredRows = useMemo(() => {
+    const term = searchValue.trim().toLowerCase()
+    if (!term) return rows
+    return rows.filter((row) => {
+      const target = row?.target || {}
+      const haystack = [target.name, target.address, target.target_type]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(term)
+    })
+  }, [rows, searchValue])
+
+  useEffect(() => {
+    fetchStatus()
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchStatus()
+      }
+    }, POLL_MS)
+    return () => clearInterval(interval)
+  }, [fetchStatus])
+
+  const formatDateTime = (value) => {
+    if (!value) return 'Sin datos'
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return 'Sin datos'
+    return new Intl.DateTimeFormat('es-ES', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(parsed)
   }
 
   const collapsedState = isMobileOpen ? false : isCollapsed
@@ -170,9 +244,18 @@ function DashboardPage() {
           </nav>
 
           <div className="sidebar-footer">
-            <Chip color="primary" variant="flat">
-              API activa
-            </Chip>
+            <Button
+              size="sm"
+              color="danger"
+              variant="flat"
+              className="sidebar-logout"
+              startContent={
+                <ArrowLeftOnRectangleIcon className="sidebar-logout-icon" />
+              }
+              onPress={handleLogout}
+            >
+              <span className="sidebar-logout-text">Cerrar sesion</span>
+            </Button>
           </div>
         </aside>
 
@@ -201,109 +284,226 @@ function DashboardPage() {
                 variant="bordered"
                 size="sm"
                 className="dashboard-search"
+                value={searchValue}
+                onValueChange={setSearchValue}
               />
-              <Button color="primary" variant="shadow">
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={fetchStatus}
+                isLoading={isLoading}
+              >
                 Actualizar
               </Button>
               <Avatar name="NOC" size="sm" />
             </div>
           </header>
 
-          <section className="dashboard-grid">
-            {quickStats.map((stat) => (
-              <Card key={stat.label} className="stat-card">
-                <CardHeader className="stat-header">
-                  <span>{stat.label}</span>
-                  <Chip size="sm" variant="flat">
-                    {stat.delta}
-                  </Chip>
-                </CardHeader>
-                <CardBody className="stat-body">
-                  <p>{stat.value}</p>
-                </CardBody>
-              </Card>
-            ))}
-          </section>
-
-          <section className="dashboard-panels">
-            <Card className="panel-card">
-              <CardHeader className="panel-header">
+          <section className="dashboard-table-section">
+            <Card className="dashboard-table-card">
+              <CardHeader className="dashboard-table-header">
                 <div>
-                  <p className="panel-title">Alertas recientes</p>
-                  <p className="panel-subtitle">
-                    Cambios de estado en tiempo real.
+                  <p className="dashboard-table-title">
+                    Monitoreo en tiempo real
+                  </p>
+                  <p className="dashboard-table-subtitle">
+                    Latencia y estado de los ultimos 60 pings por target.
+                  </p>
+                  <p className="dashboard-table-updated">
+                    Ultima actualizacion: {formatDateTime(lastUpdated)}
                   </p>
                 </div>
-                <Button variant="light" size="sm">
-                  Ver todas
-                </Button>
               </CardHeader>
-              <CardBody className="panel-body">
-                {recentAlerts.map((alert) => (
-                  <div key={alert.title} className="panel-row">
-                    <div>
-                      <p className="panel-row-title">{alert.title}</p>
-                      <p className="panel-row-subtitle">{alert.time}</p>
-                    </div>
-                    <Chip
-                      size="sm"
-                      color={
-                        alert.level === 'critica'
-                          ? 'danger'
-                          : alert.level === 'media'
-                          ? 'warning'
-                          : 'success'
-                      }
-                      variant="flat"
-                    >
-                      {alert.level}
-                    </Chip>
-                  </div>
-                ))}
-              </CardBody>
-            </Card>
-
-            <Card className="panel-card">
-              <CardHeader className="panel-header">
-                <div>
-                  <p className="panel-title">Targets clave</p>
-                  <p className="panel-subtitle">
-                    Estado y latencia por segmento.
-                  </p>
-                </div>
-                <Button variant="light" size="sm">
-                  Administrar
-                </Button>
-              </CardHeader>
-              <CardBody className="panel-body">
-                {recentTargets.map((target) => (
-                  <div key={target.name} className="panel-row">
-                    <div>
-                      <p className="panel-row-title">{target.name}</p>
-                      <p className="panel-row-subtitle">{target.latency}</p>
-                    </div>
-                    <Chip
-                      size="sm"
-                      color={target.status === 'UP' ? 'success' : 'danger'}
-                      variant="flat"
-                    >
-                      {target.status}
-                    </Chip>
-                  </div>
-                ))}
-                <div className="panel-progress">
-                  <Progress
-                    label="Disponibilidad global"
-                    value={92}
-                    color="primary"
-                    showValueLabel
-                  />
+              <CardBody className="dashboard-table-body">
+                {error ? <p className="dashboard-error">{error}</p> : null}
+                {!isLoading && !error && filteredRows.length === 0 ? (
+                  <p className="dashboard-empty">No hay datos para mostrar.</p>
+                ) : null}
+                <div className="dashboard-cards">
+                  {filteredRows.map((row) => {
+                    const target = row?.target || {}
+                    const status = row?.current_status || {}
+                    const sparklinePoints = row?.sparkline || []
+                    const lastPoint =
+                      sparklinePoints.length > 0
+                        ? sparklinePoints[sparklinePoints.length - 1]
+                        : null
+                    const statusValue =
+                      lastPoint?.s || status.status || 'UNKNOWN'
+                    const statusMeta =
+                      STATUS_META[statusValue] || STATUS_META.UNKNOWN
+                    const latencyValue =
+                      lastPoint?.l ?? status.last_latency_ms ?? null
+                    const lossValue =
+                      lastPoint?.p ?? status.last_packet_loss_percent ?? null
+                    const latency =
+                      latencyValue !== null && latencyValue !== undefined
+                        ? `${latencyValue} ms`
+                        : '--'
+                    const loss =
+                      lossValue !== null && lossValue !== undefined
+                        ? `${lossValue}%`
+                        : '--'
+                    const interval = target.check_interval_seconds
+                      ? `${target.check_interval_seconds}s`
+                      : '--'
+                    return (
+                      <Card key={target.id} className="dashboard-card-item">
+                        <CardHeader className="dashboard-card-header">
+                          <div className="dashboard-card-title">
+                            <p>{target.name || `Target ${target.id}`}</p>
+                            <span>
+                              {target.address} - {target.target_type}
+                            </span>
+                          </div>
+                          <Chip
+                            size="sm"
+                            variant="flat"
+                            color={statusMeta.color}
+                          >
+                            {statusMeta.label}
+                          </Chip>
+                        </CardHeader>
+                        <CardBody className="dashboard-card-body">
+                          <div className="dashboard-card-metrics">
+                            <span className="dashboard-metric">
+                              <BoltIcon
+                                className="dashboard-metric-icon"
+                                aria-hidden="true"
+                              />
+                              {latency}
+                            </span>
+                            <span className="dashboard-metric">
+                              <ArrowTrendingDownIcon
+                                className="dashboard-metric-icon"
+                                aria-hidden="true"
+                              />
+                              {loss}
+                            </span>
+                            <span className="dashboard-metric">
+                              <ClockIcon
+                                className="dashboard-metric-icon"
+                                aria-hidden="true"
+                              />
+                              {interval}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="dashboard-card-sparkline"
+                            onClick={() =>
+                              openChart({
+                                target,
+                                statusMeta,
+                                latency,
+                                loss,
+                                interval,
+                                sparklinePoints,
+                              })
+                            }
+                          >
+                            <Sparkline
+                              points={sparklinePoints}
+                              width={220}
+                              height={64}
+                              intervalSeconds={target.check_interval_seconds}
+                              labelEveryMinutes={1}
+                              yLabelFontSize={4}
+                              xLabelFontSize={3}
+                              paddingLeft={20}
+                              labelHeight={12}
+                              showYAxisLabels
+                              showSeconds={false}
+                            />
+                          </button>
+                        </CardBody>
+                      </Card>
+                    )
+                  })}
                 </div>
               </CardBody>
             </Card>
           </section>
         </section>
       </div>
+      <Modal
+        isOpen={isChartOpen}
+        onOpenChange={setIsChartOpen}
+        size="lg"
+        className="dashboard-chart-modal"
+      >
+        <ModalContent>
+          {() => (
+            <>
+              <ModalHeader className="dashboard-chart-header">
+                <div className="dashboard-chart-title">
+                  <p>
+                    {activeChart?.target?.name
+                      ? `${activeChart.target.name}`
+                      : 'Detalle de ping'}
+                  </p>
+                  <span>
+                    {activeChart?.target?.address} -{' '}
+                    {activeChart?.target?.target_type}
+                  </span>
+                </div>
+                {activeChart?.statusMeta ? (
+                  <Chip
+                    size="sm"
+                    variant="flat"
+                    color={activeChart.statusMeta.color}
+                  >
+                    {activeChart.statusMeta.label}
+                  </Chip>
+                ) : null}
+              </ModalHeader>
+              <ModalBody className="dashboard-chart-body">
+                <div className="dashboard-chart-metrics">
+                  <span className="dashboard-metric">
+                    <BoltIcon
+                      className="dashboard-metric-icon"
+                      aria-hidden="true"
+                    />
+                    {activeChart?.latency || '--'}
+                  </span>
+                  <span className="dashboard-metric">
+                    <ArrowTrendingDownIcon
+                      className="dashboard-metric-icon"
+                      aria-hidden="true"
+                    />
+                    {activeChart?.loss || '--'}
+                  </span>
+                  <span className="dashboard-metric">
+                    <ClockIcon
+                      className="dashboard-metric-icon"
+                      aria-hidden="true"
+                    />
+                    {activeChart?.interval || '--'}
+                  </span>
+                </div>
+                <div className="dashboard-chart-graph">
+                  <Sparkline
+                    points={activeChart?.sparklinePoints || []}
+                    width={1400}
+                    height={520}
+                    intervalSeconds={
+                      activeChart?.target?.check_interval_seconds
+                    }
+                    labelEveryMinutes={1}
+                    showAllLabels
+                    yLabelFontSize={12}
+                    xLabelFontSize={11}
+                    paddingLeft={72}
+                    labelHeight={40}
+                    showYAxisLabels
+                    showSeconds
+                  />
+                </div>
+              </ModalBody>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
       <button
         type="button"
         className="dashboard-overlay"

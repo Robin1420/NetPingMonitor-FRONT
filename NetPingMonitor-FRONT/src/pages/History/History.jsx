@@ -333,45 +333,6 @@ function HistoryPage() {
               <Avatar name="NOC" size="sm" />
             </div>
           </header>
-
-          <section className="history-summary">
-            <Card className="history-summary-card">
-              <CardHeader className="history-summary-header">
-                <span>Total registros</span>
-                <Chip size="sm" variant="flat">
-                  Horas
-                </Chip>
-              </CardHeader>
-              <CardBody className="history-summary-body">
-                <p>{logs.length}</p>
-              </CardBody>
-            </Card>
-            <Card className="history-summary-card">
-              <CardHeader className="history-summary-header">
-                <span>Eventos UP / DOWN</span>
-                <Chip size="sm" variant="flat" color="primary">
-                  Conteo
-                </Chip>
-              </CardHeader>
-              <CardBody className="history-summary-body">
-                <p>
-                  {summary.up} / {summary.down}
-                </p>
-              </CardBody>
-            </Card>
-            <Card className="history-summary-card">
-              <CardHeader className="history-summary-header">
-                <span>Latencia promedio</span>
-                <Chip size="sm" variant="flat" color="warning">
-                  ms
-                </Chip>
-              </CardHeader>
-              <CardBody className="history-summary-body">
-                <p>{avgLatency ?? '-'}</p>
-              </CardBody>
-            </Card>
-          </section>
-
           <section className="history-filters">
             <Card className="history-filter-card">
               <CardHeader className="history-filter-header">
@@ -424,7 +385,7 @@ function HistoryPage() {
                 </div>
                 <div className="history-filter-actions">
                   <Button color="primary" onPress={handleApply}>
-                    Aplicar filtros
+                    Buscar
                   </Button>
                   <Button
                     variant="bordered"
@@ -440,6 +401,45 @@ function HistoryPage() {
               </CardBody>
             </Card>
           </section>
+          <section className="history-summary">
+            <Card className="history-summary-card">
+              <CardHeader className="history-summary-header">
+                <span>Total registros</span>
+                <Chip size="sm" variant="flat">
+                  Horas
+                </Chip>
+              </CardHeader>
+              <CardBody className="history-summary-body">
+                <p>{logs.length}</p>
+              </CardBody>
+            </Card>
+            <Card className="history-summary-card">
+              <CardHeader className="history-summary-header">
+                <span>Eventos UP / DOWN</span>
+                <Chip size="sm" variant="flat" color="primary">
+                  Conteo
+                </Chip>
+              </CardHeader>
+              <CardBody className="history-summary-body">
+                <p>
+                  {summary.up} / {summary.down}
+                </p>
+              </CardBody>
+            </Card>
+            <Card className="history-summary-card">
+              <CardHeader className="history-summary-header">
+                <span>Latencia promedio</span>
+                <Chip size="sm" variant="flat" color="warning">
+                  ms
+                </Chip>
+              </CardHeader>
+              <CardBody className="history-summary-body">
+                <p>{avgLatency ?? '-'}</p>
+              </CardBody>
+            </Card>
+          </section>
+
+
 
           <section className="history-list">
             <Card className="history-card">

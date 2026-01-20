@@ -1,4 +1,4 @@
-import { useId } from "react"
+import { useId, useRef, useState } from "react"
 
 const STATUS_COLORS = {
   UP: "#22c55e",
@@ -50,8 +50,11 @@ function Sparkline({
   labelHeight: labelHeightProp,
   showYAxisLabels = true,
   showSeconds = false,
+  enableTooltip = false,
 }) {
   const uid = useId()
+  const containerRef = useRef(null)
+  const [tooltip, setTooltip] = useState(null)
 
   if (!points.length) {
     return <span className="sparkline-empty">Sin datos</span>
@@ -162,153 +165,214 @@ function Sparkline({
     return series.min + (series.range * index) / (yTicks - 1)
   })
 
+  const handleMouseMove = (event) => {
+    if (!enableTooltip || points.length < 2) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const relativeX = event.clientX - rect.left
+    const ratio = Math.min(Math.max(relativeX / rect.width, 0), 1)
+    const index = Math.round(ratio * (points.length - 1))
+    const point = points[index]
+    if (!point) {
+      setTooltip(null)
+      return
+    }
+    const pointX = paddingLeft + index * stepX
+    const pointY = pointPairs[index]?.y ?? baselineY
+    const left = (pointX / width) * rect.width
+    const top = (pointY / height) * rect.height
+    setTooltip({
+      left,
+      top,
+      time:
+        point?.t || point?.checked_at || point?.checkedAt || point?.timestamp,
+      latency: typeof point?.l === "number" ? point.l : null,
+      loss: typeof point?.p === "number" ? point.p : null,
+      status: point?.s || "UNKNOWN",
+      index,
+      pointX,
+      pointY,
+    })
+  }
+
+  const handleMouseLeave = () => {
+    if (tooltip) {
+      setTooltip(null)
+    }
+  }
+
   return (
-    <svg
-      className="sparkline"
-      width="100%"
-      height="100%"
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <title>{`Estado: ${lastStatus} | Latencia: ${lastLatency} | Perdida: ${lastLoss}`}</title>
-      <defs>
-        <linearGradient id={`${uid}-fill`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="rgba(255, 68, 4, 0.28)" />
-          <stop offset="100%" stopColor="rgba(255, 68, 4, 0)" />
-        </linearGradient>
-        <pattern
-          id={`${uid}-grid`}
-          width="8"
-          height="8"
-          patternUnits="userSpaceOnUse"
-        >
-          <path
-            d="M 8 0 L 0 0 0 8"
-            fill="none"
-            stroke="rgba(255, 68, 4, 0.06)"
-            strokeWidth="0.5"
-          />
-        </pattern>
-        <pattern
-          id={`${uid}-grid-major`}
-          width="24"
-          height="24"
-          patternUnits="userSpaceOnUse"
-        >
-          <path
-            d="M 24 0 L 0 0 0 24"
-            fill="none"
-            stroke="rgba(255, 68, 4, 0.12)"
-            strokeWidth="0.7"
-          />
-        </pattern>
-      </defs>
-      <rect
-        x={paddingLeft}
-        y={paddingTop}
-        width={innerWidth}
-        height={chartHeight}
-        fill={`url(#${uid}-grid)`}
-      />
-      <rect
-        x={paddingLeft}
-        y={paddingTop}
-        width={innerWidth}
-        height={chartHeight}
-        fill={`url(#${uid}-grid-major)`}
-      />
-      <path d={areaPath} fill={`url(#${uid}-fill)`} />
-      {yValues.map((value, index) => {
-        const ratio = (value - series.min) / series.range
-        const y = paddingTop + chartHeight * (1 - ratio)
-        return (
-          <g key={`ytick-${index}`}>
-            <line
-              x1={paddingLeft}
-              x2={paddingLeft + innerWidth}
-              y1={y}
-              y2={y}
-              stroke="rgba(255, 68, 4, 0.18)"
-              strokeWidth="0.6"
-            />
-            {showYAxisLabels ? (
-              <text
-                x={paddingLeft - 6}
-                y={y}
-                textAnchor="end"
-                dominantBaseline="middle"
-                fontSize={yLabelFontSize}
-                fill="rgba(84, 70, 60, 0.85)"
-              >
-                {Math.round(value)} ms
-              </text>
-            ) : null}
-          </g>
-        )
-      })}
-      {tickIndexes.map((index) => {
-        const x = paddingLeft + index * barWidth + barWidth / 2
-        return (
-          <line
-            key={`xline-${index}`}
-            x1={x}
-            x2={x}
-            y1={paddingTop}
-            y2={baselineY}
-            stroke="rgba(255, 68, 4, 0.12)"
-            strokeWidth="0.5"
-          />
-        )
-      })}
-      <polyline
-        fill="none"
-        stroke="var(--accent-strong)"
-        strokeWidth="0.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        points={linePoints}
-      />
-      {points.map((point, index) => {
-        const status = point?.s || "UNKNOWN"
-        const color = STATUS_COLORS[status] || STATUS_COLORS.UNKNOWN
-        const x =
-          paddingLeft + index * barWidth + (barWidth - barThickness) / 2
-        return (
-          <rect
-            key={`${status}-${index}`}
-            x={x}
-            y={barY}
-            width={barThickness}
-            height={barHeight}
-            fill={color}
-            rx="1"
-          />
-        )
-      })}
-      {tickIndexes.map((index) => {
-        const point = points[index]
-        const timestamp =
-          point?.t || point?.checked_at || point?.checkedAt || point?.timestamp
-        const label = formatTime(timestamp, showSeconds)
-        const x = paddingLeft + index * barWidth + barWidth / 2
-        return (
-          <text
-            key={`xtick-${index}`}
-            x={x}
-            y={labelY}
-            textAnchor="end"
-            dominantBaseline="middle"
-            fontSize={xLabelFontSize}
-            fill="rgba(84, 70, 60, 0.85)"
-            transform={`rotate(-90 ${x} ${labelY})`}
+    <div className="sparkline-wrapper" ref={containerRef}>
+      <svg
+        className="sparkline"
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        focusable="false"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        <title>{`Estado: ${lastStatus} | Latencia: ${lastLatency} | Perdida: ${lastLoss}`}</title>
+        <defs>
+          <linearGradient id={`${uid}-fill`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgba(255, 68, 4, 0.28)" />
+            <stop offset="100%" stopColor="rgba(255, 68, 4, 0)" />
+          </linearGradient>
+          <pattern
+            id={`${uid}-grid`}
+            width="8"
+            height="8"
+            patternUnits="userSpaceOnUse"
           >
-            {label}
-          </text>
-        )
-      })}
-    </svg>
+            <path
+              d="M 8 0 L 0 0 0 8"
+              fill="none"
+              stroke="rgba(255, 68, 4, 0.06)"
+              strokeWidth="0.5"
+            />
+          </pattern>
+          <pattern
+            id={`${uid}-grid-major`}
+            width="24"
+            height="24"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 24 0 L 0 0 0 24"
+              fill="none"
+              stroke="rgba(255, 68, 4, 0.12)"
+              strokeWidth="0.7"
+            />
+          </pattern>
+        </defs>
+        <rect
+          x={paddingLeft}
+          y={paddingTop}
+          width={innerWidth}
+          height={chartHeight}
+          fill={`url(#${uid}-grid)`}
+        />
+        <rect
+          x={paddingLeft}
+          y={paddingTop}
+          width={innerWidth}
+          height={chartHeight}
+          fill={`url(#${uid}-grid-major)`}
+        />
+        <path d={areaPath} fill={`url(#${uid}-fill)`} />
+        {yValues.map((value, index) => {
+          const ratio = (value - series.min) / series.range
+          const y = paddingTop + chartHeight * (1 - ratio)
+          return (
+            <g key={`ytick-${index}`}>
+              <line
+                x1={paddingLeft}
+                x2={paddingLeft + innerWidth}
+                y1={y}
+                y2={y}
+                stroke="rgba(255, 68, 4, 0.18)"
+                strokeWidth="0.6"
+              />
+              {showYAxisLabels ? (
+                <text
+                  x={paddingLeft - 6}
+                  y={y}
+                  textAnchor="end"
+                  dominantBaseline="middle"
+                  fontSize={yLabelFontSize}
+                  fill="rgba(84, 70, 60, 0.85)"
+                >
+                  {Math.round(value)} ms
+                </text>
+              ) : null}
+            </g>
+          )
+        })}
+        {tickIndexes.map((index) => {
+          const x = paddingLeft + index * barWidth + barWidth / 2
+          return (
+            <line
+              key={`xline-${index}`}
+              x1={x}
+              x2={x}
+              y1={paddingTop}
+              y2={baselineY}
+              stroke="rgba(255, 68, 4, 0.12)"
+              strokeWidth="0.5"
+            />
+          )
+        })}
+        <polyline
+          fill="none"
+          stroke="var(--accent-strong)"
+          strokeWidth="0.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={linePoints}
+        />
+        {points.map((point, index) => {
+          const status = point?.s || "UNKNOWN"
+          const color = STATUS_COLORS[status] || STATUS_COLORS.UNKNOWN
+          const x =
+            paddingLeft + index * barWidth + (barWidth - barThickness) / 2
+          return (
+            <rect
+              key={`${status}-${index}`}
+              x={x}
+              y={barY}
+              width={barThickness}
+              height={barHeight}
+              fill={color}
+              rx="1"
+            />
+          )
+        })}
+        {tickIndexes.map((index) => {
+          const point = points[index]
+          const timestamp =
+            point?.t || point?.checked_at || point?.checkedAt || point?.timestamp
+          const label = formatTime(timestamp, showSeconds)
+          const x = paddingLeft + index * barWidth + barWidth / 2
+          return (
+            <text
+              key={`xtick-${index}`}
+              x={x}
+              y={labelY}
+              textAnchor="end"
+              dominantBaseline="middle"
+              fontSize={xLabelFontSize}
+              fill="rgba(84, 70, 60, 0.85)"
+              transform={`rotate(-90 ${x} ${labelY})`}
+            >
+              {label}
+            </text>
+          )
+        })}
+      </svg>
+      {enableTooltip && tooltip ? (
+        <div
+          className="sparkline-tooltip"
+          style={{ left: tooltip.left, top: tooltip.top }}
+        >
+          <div className="sparkline-tooltip-time">
+            {formatTime(tooltip.time, showSeconds)}
+          </div>
+          <div>
+            {tooltip.latency !== null ? `${tooltip.latency} ms` : "--"} ·{" "}
+            {tooltip.loss !== null ? `${tooltip.loss}%` : "--"} ·{" "}
+            {tooltip.status}
+          </div>
+        </div>
+      ) : null}
+      {enableTooltip && tooltip ? (
+        <span
+          className="sparkline-tooltip-dot"
+          style={{ left: tooltip.left, top: tooltip.top }}
+        />
+      ) : null}
+    </div>
   )
 }
 

@@ -84,7 +84,26 @@ const STATUS_META = {
   UNKNOWN: { label: 'Sin dato', color: 'default' },
 }
 
+const ALERT_STATUS_META = {
+  open: { label: 'Abierta', color: 'danger' },
+  acked: { label: 'Reconocida', color: 'warning' },
+  resolved: { label: 'Resuelta', color: 'success' },
+}
+
+const RULE_META_STORAGE_KEY = 'alert_rules_meta'
+
 const POLL_MS = 15000
+
+const loadRulesMeta = () => {
+  try {
+    const stored = localStorage.getItem(RULE_META_STORAGE_KEY)
+    if (!stored) return {}
+    const parsed = JSON.parse(stored)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (err) {
+    return {}
+  }
+}
 
 function DashboardPage() {
   const navigate = useNavigate()
@@ -98,6 +117,12 @@ function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isChartOpen, setIsChartOpen] = useState(false)
   const [activeChart, setActiveChart] = useState(null)
+  const [activeAlerts, setActiveAlerts] = useState([])
+  const [alertsLoading, setAlertsLoading] = useState(false)
+  const [alertsError, setAlertsError] = useState('')
+  const [alertsUpdated, setAlertsUpdated] = useState(null)
+  const [alertRules, setAlertRules] = useState([])
+  const [rulesMeta, setRulesMeta] = useState(loadRulesMeta)
 
   const toggleMobile = () => setIsMobileOpen((prev) => !prev)
   const handleSidebarEnter = () => {
@@ -161,6 +186,73 @@ function DashboardPage() {
     }
   }, [])
 
+  const fetchActiveAlerts = useCallback(async () => {
+    setAlertsLoading(true)
+    setAlertsError('')
+    setRulesMeta(loadRulesMeta())
+    const token = getAuthToken()
+    if (!token) {
+      setAlertsError('No hay sesion activa. Inicia sesion.')
+      setActiveAlerts([])
+      setAlertsLoading(false)
+      return
+    }
+
+    try {
+      const [openResponse, ackedResponse] = await Promise.all([
+        apiFetch(`${API_BASE_URL}/alerts/?status=open`),
+        apiFetch(`${API_BASE_URL}/alerts/?status=acked`),
+      ])
+
+      const openPayload = openResponse.ok
+        ? await openResponse.json().catch(() => [])
+        : []
+      const ackedPayload = ackedResponse.ok
+        ? await ackedResponse.json().catch(() => [])
+        : []
+
+      if (!openResponse.ok || !ackedResponse.ok) {
+        setAlertsError('No se pudo cargar alertas activas.')
+      }
+
+      const combined = [...openPayload, ...ackedPayload].filter(Boolean)
+      const unique = []
+      const seen = new Set()
+      combined.forEach((alert) => {
+        if (!alert?.id || seen.has(alert.id)) return
+        seen.add(alert.id)
+        unique.push(alert)
+      })
+      setActiveAlerts(unique)
+      setAlertsUpdated(new Date())
+    } catch (err) {
+      setAlertsError('No se pudo conectar con el servidor.')
+      setActiveAlerts([])
+    } finally {
+      setAlertsLoading(false)
+    }
+  }, [])
+
+  const fetchAlertRules = useCallback(async () => {
+    const token = getAuthToken()
+    if (!token) {
+      setAlertRules([])
+      return
+    }
+
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/alert-rules/`)
+      const payload = await response.json().catch(() => [])
+      if (!response.ok) {
+        setAlertRules([])
+        return
+      }
+      setAlertRules(Array.isArray(payload) ? payload : [])
+    } catch (err) {
+      setAlertRules([])
+    }
+  }, [])
+
   const filteredRows = useMemo(() => {
     const term = searchValue.trim().toLowerCase()
     if (!term) return rows
@@ -174,15 +266,37 @@ function DashboardPage() {
     })
   }, [rows, searchValue])
 
+  const targetsById = useMemo(() => {
+    const map = new Map()
+    rows.forEach((row) => {
+      if (row?.target?.id) {
+        map.set(row.target.id, row.target)
+      }
+    })
+    return map
+  }, [rows])
+
+  const alertRulesById = useMemo(() => {
+    const map = new Map()
+    alertRules.forEach((rule) => {
+      map.set(rule.id, rule)
+    })
+    return map
+  }, [alertRules])
+
   useEffect(() => {
     fetchStatus()
+    fetchActiveAlerts()
+    fetchAlertRules()
     const interval = setInterval(() => {
       if (!document.hidden) {
         fetchStatus()
+        fetchActiveAlerts()
+        fetchAlertRules()
       }
     }, POLL_MS)
     return () => clearInterval(interval)
-  }, [fetchStatus])
+  }, [fetchStatus, fetchActiveAlerts, fetchAlertRules])
 
   const formatDateTime = (value) => {
     if (!value) return 'Sin datos'
@@ -298,6 +412,122 @@ function DashboardPage() {
               <Avatar name="NOC" size="sm" />
             </div>
           </header>
+
+          <section className="dashboard-alerts-section">
+            <Card className="dashboard-alerts-card">
+              <CardHeader className="dashboard-alerts-header">
+                <div>
+                  <p className="dashboard-alerts-title">Alertas activas</p>
+                  <p className="dashboard-alerts-subtitle">
+                    Permanecen visibles hasta que se resuelven.
+                  </p>
+                  <p className="dashboard-alerts-updated">
+                    Ultima actualizacion: {formatDateTime(alertsUpdated)}
+                  </p>
+                </div>
+                {alertsLoading ? (
+                  <Chip size="sm" variant="flat">
+                    Cargando
+                  </Chip>
+                ) : (
+                  <Chip size="sm" variant="flat" color="danger">
+                    {activeAlerts.length} activas
+                  </Chip>
+                )}
+              </CardHeader>
+              <CardBody className="dashboard-alerts-body">
+                {alertsError ? (
+                  <p className="dashboard-error">{alertsError}</p>
+                ) : null}
+                {!alertsLoading && !alertsError && activeAlerts.length === 0 ? (
+                  <p className="dashboard-empty">
+                    No hay alertas abiertas ni reconocidas.
+                  </p>
+                ) : null}
+                <div className="dashboard-alerts-list">
+                  {activeAlerts.map((alert) => {
+                    const target = targetsById.get(alert.target)
+                    const rule = alertRulesById.get(alert.rule)
+                    const meta =
+                      ALERT_STATUS_META[alert.status] ||
+                      ALERT_STATUS_META.open
+                    const severity =
+                      rulesMeta?.[alert.rule]?.severity || 'warning'
+                    const severityColor =
+                      severity === 'critical' ? 'danger' : 'warning'
+                    const alertTitle =
+                      rule?.name ||
+                      alert.summary ||
+                      `Alerta ${alert.id} en ${
+                        target?.name || `Target ${alert.target}`
+                      }`
+                    const summaryLine =
+                      rule?.name && alert.summary ? alert.summary : null
+                    return (
+                      <div
+                        key={alert.id}
+                        className="dashboard-alert"
+                        data-status={alert.status}
+                        data-severity={severity}
+                      >
+                        <div className="dashboard-alert-main">
+                          <div className="dashboard-alert-title">
+                            <BellAlertIcon
+                              className="dashboard-alert-icon"
+                              aria-hidden="true"
+                            />
+                            <div>
+                              <p>{alertTitle}</p>
+                              <span>
+                                {target?.address || `Target #${alert.target}`}{' '}
+                                · {rule?.name || `Regla #${alert.rule}`}
+                              </span>
+                            </div>
+                          </div>
+                          {summaryLine ? (
+                            <p className="dashboard-alert-details">
+                              {summaryLine}
+                            </p>
+                          ) : null}
+                          {alert.details ? (
+                            <p className="dashboard-alert-details">
+                              {alert.details}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="dashboard-alert-side">
+                          <div className="dashboard-alert-tags">
+                            <Chip size="sm" variant="flat" color={meta.color}>
+                              {meta.label}
+                            </Chip>
+                            {severity ? (
+                              <Chip
+                                size="sm"
+                                variant="flat"
+                                color={severityColor}
+                              >
+                                {severity}
+                              </Chip>
+                            ) : null}
+                          </div>
+                          <span className="dashboard-alert-time">
+                            {formatDateTime(alert.opened_at)}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="bordered"
+                            onPress={() => navigate('/alerts')}
+                          >
+                            Ver detalle
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardBody>
+            </Card>
+          </section>
 
           <section className="dashboard-table-section">
             <Card className="dashboard-table-card">
@@ -447,39 +677,42 @@ function DashboardPage() {
                     {activeChart?.target?.target_type}
                   </span>
                 </div>
-                {activeChart?.statusMeta ? (
-                  <Chip
-                    size="sm"
-                    variant="flat"
-                    color={activeChart.statusMeta.color}
-                  >
-                    {activeChart.statusMeta.label}
-                  </Chip>
-                ) : null}
               </ModalHeader>
               <ModalBody className="dashboard-chart-body">
                 <div className="dashboard-chart-metrics">
-                  <span className="dashboard-metric">
-                    <BoltIcon
-                      className="dashboard-metric-icon"
-                      aria-hidden="true"
-                    />
-                    {activeChart?.latency || '--'}
-                  </span>
-                  <span className="dashboard-metric">
-                    <ArrowTrendingDownIcon
-                      className="dashboard-metric-icon"
-                      aria-hidden="true"
-                    />
-                    {activeChart?.loss || '--'}
-                  </span>
-                  <span className="dashboard-metric">
-                    <ClockIcon
-                      className="dashboard-metric-icon"
-                      aria-hidden="true"
-                    />
-                    {activeChart?.interval || '--'}
-                  </span>
+                  <div className="dashboard-chart-metrics-left">
+                    <span className="dashboard-metric">
+                      <BoltIcon
+                        className="dashboard-metric-icon"
+                        aria-hidden="true"
+                      />
+                      {activeChart?.latency || '--'}
+                    </span>
+                    <span className="dashboard-metric">
+                      <ArrowTrendingDownIcon
+                        className="dashboard-metric-icon"
+                        aria-hidden="true"
+                      />
+                      {activeChart?.loss || '--'}
+                    </span>
+                    <span className="dashboard-metric">
+                      <ClockIcon
+                        className="dashboard-metric-icon"
+                        aria-hidden="true"
+                      />
+                      {activeChart?.interval || '--'}
+                    </span>
+                  </div>
+                  {activeChart?.statusMeta ? (
+                    <Chip
+                      size="sm"
+                      variant="flat"
+                      color={activeChart.statusMeta.color}
+                      className="dashboard-chart-status"
+                    >
+                      {activeChart.statusMeta.label}
+                    </Chip>
+                  ) : null}
                 </div>
                 <div className="dashboard-chart-graph">
                   <Sparkline
@@ -497,6 +730,7 @@ function DashboardPage() {
                     labelHeight={40}
                     showYAxisLabels
                     showSeconds
+                    enableTooltip
                   />
                 </div>
               </ModalBody>
